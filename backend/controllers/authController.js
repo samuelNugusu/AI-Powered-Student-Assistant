@@ -1,55 +1,50 @@
-// backend/controllers/authController.js
+import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
-import Joi from "joi";
-import { createUser, findUserByEmail } from "../models/userModel.js";
-import generateToken from "../utils/generateToken.js";
+import { createUser, getUserByEmail } from "../models/userModel.js";
 
-const registerSchema = Joi.object({
-  username: Joi.string().min(3).max(30).required(),
-  email: Joi.string().email().required(),
-  password: Joi.string().min(6).required(),
-});
-
-const loginSchema = Joi.object({
-  email: Joi.string().email().required(),
-  password: Joi.string().required(),
-});
-
-export const registerUser = async (req, res) => {
+// SIGNUP
+export async function signup(req, res) {
   try {
-    const { error, value } = registerSchema.validate(req.body);
-    if (error) return res.status(400).json({ message: error.message });
+    const { name, email, password } = req.body;
 
-    const existing = await findUserByEmail(value.email);
-    if (existing) return res.status(400).json({ message: "Email already registered" });
+    const existingUser = await getUserByEmail(email);
+    if (existingUser) {
+      return res.status(400).json({ message: "Email already exists" });
+    }
 
-    const passwordHash = await bcrypt.hash(value.password, 10);
-    const user = await createUser({ username: value.username, email: value.email, passwordHash });
-    const token = generateToken(user.id);
+    const user = await createUser(name, email, password);
 
-    res.json({ user, token });
+    return res.status(201).json(user);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: "Registration failed" });
+    res.status(500).json({ message: "Signup failed" });
   }
-};
+}
 
-export const loginUser = async (req, res) => {
+// LOGIN
+export async function login(req, res) {
   try {
-    const { error, value } = loginSchema.validate(req.body);
-    if (error) return res.status(400).json({ message: error.message });
+    const { email, password } = req.body;
 
-    const user = await findUserByEmail(value.email);
-    if (!user) return res.status(400).json({ message: "Invalid credentials" });
+    const user = await getUserByEmail(email);
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
 
-    const match = await bcrypt.compare(value.password, user.password);
-    if (!match) return res.status(400).json({ message: "Invalid credentials" });
+    const isMatch = await bcrypt.compare(password, user.password_hash);
+    if (!isMatch) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
 
-    const token = generateToken(user.id);
-    // return minimal user data
-    res.json({ token, user: { id: user.id, username: user.username, email: user.email } });
+    const token = jwt.sign(
+      { userId: user.id, email: user.email },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    );
+
+    res.json({ token });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Login failed" });
   }
-};
+}
